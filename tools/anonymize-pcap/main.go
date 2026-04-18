@@ -1,8 +1,12 @@
-// Rewrite MACs/IPs/timestamps in a pcap, preserve UDP payloads.
-// Usage: go run ./tools/anonymize-pcap <input.pcap> <output.pcap>
+// Rewrite MACs, IPs, timestamps in a pcap. Optional --scrub-string (repeatable)
+// ASCII-replaces matches in UDP payloads with same-length 'X' padding.
+//
+// Usage: go run ./tools/anonymize-pcap <input.pcap> <output.pcap> [--scrub-string name]...
 package main
 
 import (
+	"bytes"
+	"flag"
 	"fmt"
 	"net"
 	"os"
@@ -13,6 +17,28 @@ import (
 	"github.com/google/gopacket/pcapgo"
 )
 
+type stringList []string
+
+func (s *stringList) String() string     { return fmt.Sprintf("%v", []string(*s)) }
+func (s *stringList) Set(v string) error { *s = append(*s, v); return nil }
+
+func main() {
+	var scrub stringList
+	fs := flag.NewFlagSet("anonymize-pcap", flag.ExitOnError)
+	fs.Var(&scrub, "scrub-string", "ASCII string to replace in UDP payloads with same-length 'X' padding (repeatable)")
+	if err := fs.Parse(os.Args[1:]); err != nil {
+		os.Exit(2)
+	}
+	if fs.NArg() != 2 {
+		fmt.Fprintln(os.Stderr, "usage: anonymize-pcap <input.pcap> <output.pcap> [--scrub-string name]...")
+		os.Exit(2)
+	}
+	if err := runWithOptions(fs.Arg(0), fs.Arg(1), scrub); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+}
+
 var (
 	fakeClientMAC = net.HardwareAddr{0x02, 0x00, 0x00, 0x00, 0x00, 0x01}
 	fakeServerMAC = net.HardwareAddr{0x02, 0x00, 0x00, 0x00, 0x00, 0x02}
@@ -20,18 +46,7 @@ var (
 	fakeServerIP  = net.IPv4(10, 0, 0, 2)
 )
 
-func main() {
-	if len(os.Args) != 3 {
-		fmt.Fprintln(os.Stderr, "usage: anonymize-pcap <input.pcap> <output.pcap>")
-		os.Exit(2)
-	}
-	if err := run(os.Args[1], os.Args[2]); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
-	}
-}
-
-func run(in, out string) error {
+func runWithOptions(in, out string, scrubs []string) error {
 	src, err := os.Open(in)
 	if err != nil {
 		return err
@@ -113,22 +128,27 @@ func run(in, out string) error {
 			return fmt.Errorf("checksum wiring: %w", err)
 		}
 
+		if len(scrubs) > 0 {
+			udp.Payload = scrubPayload(udp.Payload, scrubs)
+		}
+
 		buf := gopacket.NewSerializeBuffer()
 		opts := gopacket.SerializeOptions{FixLengths: true, ComputeChecksums: true}
-		if err := gopacket.SerializePacket(buf, opts, pkt); err != nil {
+		// SerializeLayers picks up the mutated udp.Payload; SerializePacket would reuse the original parsed layer.
+		if err := gopacket.SerializeLayers(buf, opts, eth, ip4, udp, gopacket.Payload(udp.Payload)); err != nil {
 			return fmt.Errorf("serialize: %w", err)
 		}
-		out := buf.Bytes()
+		outBytes := buf.Bytes()
 
 		if baseTime.IsZero() {
 			baseTime = ci.Timestamp
 		}
 		newCI := gopacket.CaptureInfo{
 			Timestamp:     time.Unix(0, 0).Add(ci.Timestamp.Sub(baseTime)),
-			CaptureLength: len(out),
-			Length:        len(out),
+			CaptureLength: len(outBytes),
+			Length:        len(outBytes),
 		}
-		if err := writer.WritePacket(newCI, out); err != nil {
+		if err := writer.WritePacket(newCI, outBytes); err != nil {
 			return err
 		}
 		kept++
@@ -136,4 +156,22 @@ func run(in, out string) error {
 
 	fmt.Printf("%d packets read, %d anonymized packets written to %s\n", total, kept, out)
 	return nil
+}
+
+const scrubByte = 'X'
+
+// scrubPayload applies needles in order; overlapping matches resolve by first match wins. ASCII only.
+func scrubPayload(payload []byte, needles []string) []byte {
+	if len(needles) == 0 {
+		return payload
+	}
+	out := append([]byte(nil), payload...)
+	for _, n := range needles {
+		if n == "" {
+			continue
+		}
+		pad := bytes.Repeat([]byte{scrubByte}, len(n))
+		out = bytes.ReplaceAll(out, []byte(n), pad)
+	}
+	return out
 }
