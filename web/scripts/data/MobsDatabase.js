@@ -157,6 +157,8 @@ export class MobsDatabase {
             this.mobsById.set(typeId, {
                 type: resourceType,
                 tier: resourceTier,
+                combatTier: tier,
+                lootType: mob.l || null,
                 uniqueName,
                 category,
                 namelocatag,

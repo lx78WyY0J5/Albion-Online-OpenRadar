@@ -1,6 +1,7 @@
 import {CATEGORIES} from '../constants/LoggerConstants.js';
 import settingsSync from '../utils/SettingsSync.js';
 import {getResourceStorageKey} from "../utils/ResourcesHelper.js";
+import {getLivingHarvestTier} from '../utils/LivingResourceTier.js';
 
 export const EnemyType =
     {
@@ -184,17 +185,21 @@ export class MobsHandler {
         let hasKnownInfo = false;
 
         if (dbInfo && dbInfo.isHarvestable) {
-            // Living resource from MobsDatabase
-            mob.tier = dbInfo.tier || 0;
-            mob.name = dbInfo.type;  // 'Hide', 'Fiber', 'Log', 'Rock', 'Ore'
-            // Hide = LivingSkinnable (animals), others = LivingHarvestable (critters/guardians)
+            mob.tier = getLivingHarvestTier({
+                u: dbInfo.uniqueName,
+                t: dbInfo.combatTier,
+                l: dbInfo.lootType,
+            }) || 0;
+            mob.name = dbInfo.type;
             mob.type = dbInfo.type === 'Hide' ? EnemyType.LivingSkinnable : EnemyType.LivingHarvestable;
             hasKnownInfo = true;
 
             window.logger?.debug(CATEGORIES.MOBS, 'MobsDatabaseMatch', {
                 typeId,
                 type: dbInfo.type,
-                tier: dbInfo.tier,
+                combatTier: dbInfo.combatTier,
+                lootTier: dbInfo.tier,
+                harvestTier: mob.tier,
                 uniqueName: dbInfo.uniqueName,
                 assignedEnemyType: this.getEnemyTypeName(mob.type)
             });
@@ -251,7 +256,7 @@ export class MobsHandler {
                 let prefix;
                 if (resourceType === 'Fiber' || resourceType === 'fiber') prefix = 'fsp';
                 else if (resourceType === 'Hide' || resourceType === 'hide') prefix = 'hsp';
-                else if (resourceType === 'Wood' || resourceType === 'Logs') prefix = 'wsp';
+                else if (resourceType === 'Log' || resourceType === 'Wood' || resourceType === 'Logs') prefix = 'wsp';
                 else if (resourceType === 'Ore' || resourceType === 'ore') prefix = 'osp';
                 else if (resourceType === 'Rock' || resourceType === 'rock') prefix = 'rsp';
                 const settingKey = getResourceStorageKey(prefix, 'Living');

@@ -84,9 +84,9 @@ describe('MobsHandler', () => {
             expect(mobs[0].tier).toBe(5);
         });
 
-        // @verified 2026-04-18: typeId=422 (T2_MOB_HIDE_SWAMP_SNAKE, real DB lt=2).
-        // Real DB: type=Hide, tier=2, isHarvestable=true -> LivingSkinnable.
-        test('pcap-derived spawn: living Hide mob typeId=422 tier=2 adds as LivingSkinnable', async () => {
+        // @verified 2026-04-19: typeId=422 (T2_MOB_HIDE_SWAMP_SNAKE). Server event 40 Parameters[7]=1.
+        // Rule: LIVING HIDE, max(1, 2-1) = 1. Combat tier 2 shifts to harvest tier 1.
+        test('pcap-derived spawn: living Hide mob typeId=422 rendered with harvest tier 1', async () => {
             const fx = await loadFixture('mobs', 'spawn');
             const msg = fx.messages.find(m => m.parameters['1'] === 422);
             expect(msg).toBeDefined();
@@ -97,16 +97,31 @@ describe('MobsHandler', () => {
             const mobs = handler.getMobList();
             expect(mobs).toHaveLength(1);
             expect(mobs[0].type).toBe(EnemyType.LivingSkinnable);
-            expect(mobs[0].tier).toBe(2);
+            expect(mobs[0].tier).toBe(1);
         });
 
-        // @characterization 2026-04-18: typeId=529 (T4_MOB_CRITTER_FIBER_SWAMP_GREEN, real DB lt=4, type=Fiber).
-        // Real DB: l=FIBER_CRITTER, type=Fiber, tier=4, isHarvestable=true.
-        // Handler classifies: type !== 'Hide' -> LivingHarvestable (not LivingSkinnable).
-        // Previous mock wrongly returned type='Hide', causing wrong LivingSkinnable classification.
-        test('pcap-derived spawn: Fiber critter typeId=529 adds as LivingHarvestable with tier=4', async () => {
+        // @verified 2026-04-19: typeId=529 (T4_MOB_CRITTER_FIBER_SWAMP_GREEN). Server event 40 Parameters[7]=3.
+        // Rule: LIVING FIBER_CRITTER (floor=3), max(3, 4-1) = 3. Combat tier 4 shifts to harvest tier 3.
+        test('pcap-derived spawn: Fiber critter typeId=529 rendered with harvest tier 3', async () => {
             const fx = await loadFixture('mobs', 'spawn');
             const msg = fx.messages.find(m => m.parameters['1'] === 529);
+            expect(msg).toBeDefined();
+            const p = normalizeParams(msg.parameters);
+
+            handler.NewMobEvent(p);
+
+            const mobs = handler.getMobList();
+            expect(mobs).toHaveLength(1);
+            expect(mobs[0].type).toBe(EnemyType.LivingHarvestable);
+            expect(mobs[0].name).toBe('Fiber');
+            expect(mobs[0].tier).toBe(3);
+        });
+
+        // @verified 2026-04-19: typeId=531 (T5_MOB_CRITTER_FIBER_SWAMP_RED). Server event 40 Parameters[7]=4.
+        // Rule: LIVING FIBER_CRITTER, max(3, 5-1) = 4. Combat tier 5 shifts to harvest tier 4.
+        test('pcap-derived spawn: Fiber critter typeId=531 rendered with harvest tier 4', async () => {
+            const fx = await loadFixture('mobs', 'spawn');
+            const msg = fx.messages.find(m => m.parameters['1'] === 531);
             expect(msg).toBeDefined();
             const p = normalizeParams(msg.parameters);
 
@@ -119,13 +134,45 @@ describe('MobsHandler', () => {
             expect(mobs[0].tier).toBe(4);
         });
 
-        // @characterization 2026-04-18: typeId=531 (T5_MOB_CRITTER_FIBER_SWAMP_RED, real DB lt=5, type=Fiber).
-        // Real DB: l=FIBER_CRITTER, type=Fiber, tier=5, isHarvestable=true.
-        // Handler classifies: type !== 'Hide' -> LivingHarvestable.
-        // Previous mock wrongly returned type='Hide', causing wrong LivingSkinnable classification.
-        test('pcap-derived spawn: Fiber critter typeId=531 adds as LivingHarvestable with tier=5', async () => {
-            const fx = await loadFixture('mobs', 'spawn');
-            const msg = fx.messages.find(m => m.parameters['1'] === 531);
+        // @verified 2026-04-19: typeId=373 (T5_MOB_HIDE_MISTS_OWL). User confirmed game tooltip T4.
+        // Rule: LIVING HIDE, max(1, 5-1) = 4.
+        test('pcap-derived spawn (living-tier): Hide Mists owl typeId=373 rendered with harvest tier 4', async () => {
+            const fx = await loadFixture('mobs', 'living-tier');
+            const msg = fx.messages.find(m => m.parameters['1'] === 373);
+            expect(msg).toBeDefined();
+            const p = normalizeParams(msg.parameters);
+
+            handler.NewMobEvent(p);
+
+            const mobs = handler.getMobList();
+            expect(mobs).toHaveLength(1);
+            expect(mobs[0].type).toBe(EnemyType.LivingSkinnable);
+            expect(mobs[0].name).toBe('Hide');
+            expect(mobs[0].tier).toBe(4);
+        });
+
+        // @verified 2026-04-19: typeId=374 (T6_MOB_HIDE_MISTS_HOUND). User confirmed game tooltip T5.
+        // Rule: LIVING HIDE, max(1, 6-1) = 5.
+        test('pcap-derived spawn (living-tier): Hide Mists hound typeId=374 rendered with harvest tier 5', async () => {
+            const fx = await loadFixture('mobs', 'living-tier');
+            const msg = fx.messages.find(m => m.parameters['1'] === 374);
+            expect(msg).toBeDefined();
+            const p = normalizeParams(msg.parameters);
+
+            handler.NewMobEvent(p);
+
+            const mobs = handler.getMobList();
+            expect(mobs).toHaveLength(1);
+            expect(mobs[0].type).toBe(EnemyType.LivingSkinnable);
+            expect(mobs[0].name).toBe('Hide');
+            expect(mobs[0].tier).toBe(5);
+        });
+
+        // @verified 2026-04-19: typeId=532 (T5_MOB_CRITTER_FIBER_SWAMP_DEAD). Server event 40 Parameters[7]=5.
+        // Rule: DEAD variant preserves combat tier 5, no shift.
+        test('pcap-derived spawn (living-tier): Fiber DEAD typeId=532 preserves combat tier 5', async () => {
+            const fx = await loadFixture('mobs', 'living-tier');
+            const msg = fx.messages.find(m => m.parameters['1'] === 532);
             expect(msg).toBeDefined();
             const p = normalizeParams(msg.parameters);
 
@@ -135,6 +182,74 @@ describe('MobsHandler', () => {
             expect(mobs).toHaveLength(1);
             expect(mobs[0].type).toBe(EnemyType.LivingHarvestable);
             expect(mobs[0].name).toBe('Fiber');
+            expect(mobs[0].tier).toBe(5);
+        });
+
+        // @verified 2026-04-19: typeId=534 (T6_MOB_CRITTER_FIBER_SWAMP_DEAD). DEAD variant.
+        // Rule: DEAD preserves combat tier 6.
+        test('pcap-derived spawn (living-tier): Fiber DEAD typeId=534 preserves combat tier 6', async () => {
+            const fx = await loadFixture('mobs', 'living-tier');
+            const msg = fx.messages.find(m => m.parameters['1'] === 534);
+            expect(msg).toBeDefined();
+            const p = normalizeParams(msg.parameters);
+
+            handler.NewMobEvent(p);
+
+            const mobs = handler.getMobList();
+            expect(mobs).toHaveLength(1);
+            expect(mobs[0].type).toBe(EnemyType.LivingHarvestable);
+            expect(mobs[0].name).toBe('Fiber');
+            expect(mobs[0].tier).toBe(6);
+        });
+
+        // @verified 2026-04-19: typeId=649 (T4_MOB_CRITTER_WOOD_MISTS_GREEN). WOOD_CRITTER, floor=3.
+        // Rule: max(3, 4-1) = 3. Validates Wood family parity with other living resources.
+        test('pcap-derived spawn (living-tier): Wood Mists critter typeId=649 rendered with harvest tier 3', async () => {
+            const fx = await loadFixture('mobs', 'living-tier');
+            const msg = fx.messages.find(m => m.parameters['1'] === 649);
+            expect(msg).toBeDefined();
+            const p = normalizeParams(msg.parameters);
+
+            handler.NewMobEvent(p);
+
+            const mobs = handler.getMobList();
+            expect(mobs).toHaveLength(1);
+            expect(mobs[0].type).toBe(EnemyType.LivingHarvestable);
+            expect(mobs[0].name).toBe('Log');
+            expect(mobs[0].tier).toBe(3);
+        });
+
+        // @verified 2026-04-19: typeId=650 (T5_MOB_CRITTER_WOOD_MISTS_GREEN). Server event 40 Parameters[7]=4.
+        // Rule: max(3, 5-1) = 4. Wood family matches Fiber pattern.
+        test('pcap-derived spawn (living-tier): Wood Mists critter typeId=650 rendered with harvest tier 4', async () => {
+            const fx = await loadFixture('mobs', 'living-tier');
+            const msg = fx.messages.find(m => m.parameters['1'] === 650);
+            expect(msg).toBeDefined();
+            const p = normalizeParams(msg.parameters);
+
+            handler.NewMobEvent(p);
+
+            const mobs = handler.getMobList();
+            expect(mobs).toHaveLength(1);
+            expect(mobs[0].type).toBe(EnemyType.LivingHarvestable);
+            expect(mobs[0].name).toBe('Log');
+            expect(mobs[0].tier).toBe(4);
+        });
+
+        // @verified 2026-04-19: typeId=651 (T6_MOB_CRITTER_WOOD_MISTS_GREEN). WOOD_CRITTER.
+        // Rule: max(3, 6-1) = 5.
+        test('pcap-derived spawn (living-tier): Wood Mists critter typeId=651 rendered with harvest tier 5', async () => {
+            const fx = await loadFixture('mobs', 'living-tier');
+            const msg = fx.messages.find(m => m.parameters['1'] === 651);
+            expect(msg).toBeDefined();
+            const p = normalizeParams(msg.parameters);
+
+            handler.NewMobEvent(p);
+
+            const mobs = handler.getMobList();
+            expect(mobs).toHaveLength(1);
+            expect(mobs[0].type).toBe(EnemyType.LivingHarvestable);
+            expect(mobs[0].name).toBe('Log');
             expect(mobs[0].tier).toBe(5);
         });
 
@@ -264,6 +379,106 @@ describe('MobsHandler', () => {
             }
             expect(handler.getSize().mists).toBe(mists.length);
         });
+
+        // -------------------------------------------------------------------------
+        // Synthetic coverage grid : every family x tier x variant via real mobs DB
+        // -------------------------------------------------------------------------
+        // @verified 2026-04-19: validates harvest-tier rule end-to-end for the 60
+        // cells (5 families x T1..T8 x LIVING/DYNAMIC/DEAD where present in DB).
+        // Synthetic NewMob parameters go through the real mobsDatabase lookup and
+        // through the MobsHandler filter. If a family/tier/variant breaks silently
+        // (as wood did before the Log filter fix), the corresponding row fails.
+
+        const LIVING_COVERAGE = [
+            ['Fiber', 3, 'LIVING', 524, 'Fiber', EnemyType.LivingHarvestable, 3],
+            ['Fiber', 3, 'DEAD', 714, 'Fiber', EnemyType.LivingHarvestable, 3],
+            ['Fiber', 4, 'LIVING', 529, 'Fiber', EnemyType.LivingHarvestable, 3],
+            ['Fiber', 4, 'DEAD', 715, 'Fiber', EnemyType.LivingHarvestable, 4],
+            ['Fiber', 5, 'LIVING', 525, 'Fiber', EnemyType.LivingHarvestable, 4],
+            ['Fiber', 5, 'DEAD', 532, 'Fiber', EnemyType.LivingHarvestable, 5],
+            ['Fiber', 6, 'LIVING', 533, 'Fiber', EnemyType.LivingHarvestable, 5],
+            ['Fiber', 6, 'DEAD', 534, 'Fiber', EnemyType.LivingHarvestable, 6],
+            ['Fiber', 7, 'LIVING', 526, 'Fiber', EnemyType.LivingHarvestable, 6],
+            ['Fiber', 7, 'DEAD', 535, 'Fiber', EnemyType.LivingHarvestable, 7],
+            ['Fiber', 8, 'LIVING', 637, 'Fiber', EnemyType.LivingHarvestable, 7],
+            ['Fiber', 8, 'DEAD', 536, 'Fiber', EnemyType.LivingHarvestable, 8],
+
+            ['Hide', 1, 'LIVING', 369, 'Hide', EnemyType.LivingSkinnable, 1],
+            ['Hide', 2, 'LIVING', 370, 'Hide', EnemyType.LivingSkinnable, 1],
+            ['Hide', 3, 'LIVING', 371, 'Hide', EnemyType.LivingSkinnable, 2],
+            ['Hide', 3, 'DYNAMIC', 401, 'Hide', EnemyType.LivingSkinnable, 3],
+            ['Hide', 4, 'LIVING', 372, 'Hide', EnemyType.LivingSkinnable, 3],
+            ['Hide', 4, 'DYNAMIC', 403, 'Hide', EnemyType.LivingSkinnable, 4],
+            ['Hide', 5, 'LIVING', 373, 'Hide', EnemyType.LivingSkinnable, 4],
+            ['Hide', 5, 'DYNAMIC', 405, 'Hide', EnemyType.LivingSkinnable, 5],
+            ['Hide', 6, 'LIVING', 374, 'Hide', EnemyType.LivingSkinnable, 5],
+            ['Hide', 6, 'DYNAMIC', 407, 'Hide', EnemyType.LivingSkinnable, 6],
+            ['Hide', 7, 'LIVING', 375, 'Hide', EnemyType.LivingSkinnable, 6],
+            ['Hide', 7, 'DYNAMIC', 411, 'Hide', EnemyType.LivingSkinnable, 7],
+            ['Hide', 8, 'LIVING', 376, 'Hide', EnemyType.LivingSkinnable, 7],
+            ['Hide', 8, 'DYNAMIC', 414, 'Hide', EnemyType.LivingSkinnable, 8],
+
+            ['Log', 3, 'LIVING', 553, 'Log', EnemyType.LivingHarvestable, 3],
+            ['Log', 3, 'DEAD', 696, 'Log', EnemyType.LivingHarvestable, 3],
+            ['Log', 4, 'LIVING', 555, 'Log', EnemyType.LivingHarvestable, 3],
+            ['Log', 4, 'DEAD', 697, 'Log', EnemyType.LivingHarvestable, 4],
+            ['Log', 5, 'LIVING', 557, 'Log', EnemyType.LivingHarvestable, 4],
+            ['Log', 5, 'DEAD', 558, 'Log', EnemyType.LivingHarvestable, 5],
+            ['Log', 6, 'LIVING', 559, 'Log', EnemyType.LivingHarvestable, 5],
+            ['Log', 6, 'DEAD', 560, 'Log', EnemyType.LivingHarvestable, 6],
+            ['Log', 7, 'LIVING', 591, 'Log', EnemyType.LivingHarvestable, 6],
+            ['Log', 7, 'DEAD', 561, 'Log', EnemyType.LivingHarvestable, 7],
+            ['Log', 8, 'LIVING', 592, 'Log', EnemyType.LivingHarvestable, 7],
+            ['Log', 8, 'DEAD', 562, 'Log', EnemyType.LivingHarvestable, 8],
+
+            ['Ore', 3, 'LIVING', 543, 'Ore', EnemyType.LivingHarvestable, 3],
+            ['Ore', 3, 'DEAD', 708, 'Ore', EnemyType.LivingHarvestable, 3],
+            ['Ore', 4, 'LIVING', 545, 'Ore', EnemyType.LivingHarvestable, 3],
+            ['Ore', 4, 'DEAD', 709, 'Ore', EnemyType.LivingHarvestable, 4],
+            ['Ore', 5, 'LIVING', 547, 'Ore', EnemyType.LivingHarvestable, 4],
+            ['Ore', 5, 'DEAD', 548, 'Ore', EnemyType.LivingHarvestable, 5],
+            ['Ore', 6, 'LIVING', 549, 'Ore', EnemyType.LivingHarvestable, 5],
+            ['Ore', 6, 'DEAD', 550, 'Ore', EnemyType.LivingHarvestable, 6],
+            ['Ore', 7, 'LIVING', 621, 'Ore', EnemyType.LivingHarvestable, 6],
+            ['Ore', 7, 'DEAD', 551, 'Ore', EnemyType.LivingHarvestable, 7],
+            ['Ore', 8, 'LIVING', 622, 'Ore', EnemyType.LivingHarvestable, 7],
+            ['Ore', 8, 'DEAD', 552, 'Ore', EnemyType.LivingHarvestable, 8],
+
+            ['Rock', 3, 'LIVING', 563, 'Rock', EnemyType.LivingHarvestable, 3],
+            ['Rock', 3, 'DEAD', 702, 'Rock', EnemyType.LivingHarvestable, 3],
+            ['Rock', 4, 'LIVING', 565, 'Rock', EnemyType.LivingHarvestable, 3],
+            ['Rock', 4, 'DEAD', 703, 'Rock', EnemyType.LivingHarvestable, 4],
+            ['Rock', 5, 'LIVING', 567, 'Rock', EnemyType.LivingHarvestable, 4],
+            ['Rock', 5, 'DEAD', 568, 'Rock', EnemyType.LivingHarvestable, 5],
+            ['Rock', 6, 'LIVING', 569, 'Rock', EnemyType.LivingHarvestable, 5],
+            ['Rock', 6, 'DEAD', 570, 'Rock', EnemyType.LivingHarvestable, 6],
+            ['Rock', 7, 'LIVING', 606, 'Rock', EnemyType.LivingHarvestable, 6],
+            ['Rock', 7, 'DEAD', 571, 'Rock', EnemyType.LivingHarvestable, 7],
+            ['Rock', 8, 'LIVING', 607, 'Rock', EnemyType.LivingHarvestable, 7],
+            ['Rock', 8, 'DEAD', 572, 'Rock', EnemyType.LivingHarvestable, 8],
+        ];
+
+        test.each(LIVING_COVERAGE)(
+            'synthetic coverage: %s T%d %s mobId=%d renders as %s (harvest tier %d)',
+            (family, tier, variant, mobId, expectedName, expectedEnemyType, expectedTier) => {
+                const params = normalizeParams({
+                    '0': 90000 + mobId,
+                    '1': mobId,
+                    '2': 255,
+                    '7': [0, 0],
+                    '13': 1000,
+                    '33': 0,
+                });
+
+                handler.NewMobEvent(params);
+
+                const mobs = handler.getMobList();
+                expect(mobs).toHaveLength(1);
+                expect(mobs[0].type).toBe(expectedEnemyType);
+                expect(mobs[0].name).toBe(expectedName);
+                expect(mobs[0].tier).toBe(expectedTier);
+            }
+        );
     });
 
     // -------------------------------------------------------------------------
