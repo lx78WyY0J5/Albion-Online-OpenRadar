@@ -308,6 +308,24 @@ export class RadarRenderer {
         this.renderZoneInfo(ctx);
         this.renderStatsBox(ctx);
         this.renderThreatBorder(ctx);
+        this.renderFlashOverlay(ctx);
+    }
+
+    renderFlashOverlay(ctx) {
+        if (!settingsSync.getBool('settingFlash')) return;
+        const handler = this.handlers.playersHandler;
+        if (!handler?.lastFlashAt) return;
+
+        const duration = handler.FLASH_DURATION_MS || 300;
+        const elapsed = performance.now() - handler.lastFlashAt;
+        if (elapsed < 0 || elapsed > duration) return;
+
+        const canvasSize = settingsSync.getNumber('settingCanvasSize') || 500;
+        const alpha = 0.6 * (1 - elapsed / duration);
+        ctx.save();
+        ctx.fillStyle = `rgba(239, 68, 68, ${alpha})`;
+        ctx.fillRect(0, 0, canvasSize, canvasSize);
+        ctx.restore();
     }
 
     /**
@@ -382,8 +400,8 @@ export class RadarRenderer {
      */
     renderStatsBox(ctx) {
         const playerCount = this.handlers.playersHandler?.getFilteredPlayers?.()?.length ?? 0;
-        const resourceCount = this.handlers.harvestablesHandler?.harvestableList?.length || 0;
-        const mobCount = this.handlers.mobsHandler?.mobsList?.length || 0;
+        const resourceCount = this.drawings.harvestablesDrawing?.lastVisibleCount ?? 0;
+        const mobCount = this.drawings.mobsDrawing?.lastVisibleCount ?? 0;
 
         const stats = [];
         if (settingsSync.getBool('settingShowPlayers')) {
@@ -421,21 +439,19 @@ export class RadarRenderer {
     renderThreatBorder(ctx) {
         if (!settingsSync.getBool('settingFlashDangerousPlayer')) return;
 
-        const hostilePlayers = this.handlers.playersHandler?.getFilteredPlayers?.()?.filter(
-            p => p.isHostile?.()
-        ) || [];
+        const threats = this.handlers.playersHandler?.getThreatPlayers?.() || [];
 
-        if (hostilePlayers.length === 0) return;
+        if (threats.length === 0) return;
 
-        const pulse = Math.sin(Date.now() / 150) * 0.3 + 0.5;
+        const pulse = Math.sin(Date.now() / 140) * 0.35 + 0.6;
         const canvasSize = settingsSync.getNumber('settingCanvasSize') || 500;
 
         ctx.save();
         ctx.shadowColor = `rgba(255, 50, 50, ${pulse})`;
-        ctx.shadowBlur = 12;
-        ctx.strokeStyle = `rgba(255, 50, 50, ${pulse * 0.8})`;
-        ctx.lineWidth = 3;
-        ctx.strokeRect(2, 2, canvasSize - 4, canvasSize - 4);
+        ctx.shadowBlur = 24;
+        ctx.strokeStyle = `rgba(255, 50, 50, ${pulse})`;
+        ctx.lineWidth = 5;
+        ctx.strokeRect(3, 3, canvasSize - 6, canvasSize - 6);
         ctx.restore();
     }
 

@@ -1,5 +1,4 @@
 import {CATEGORIES} from "../constants/LoggerConstants.js";
-import settingsSync from "../utils/SettingsSync.js";
 
 class Fish
 {
@@ -31,19 +30,22 @@ export class FishingHandler
 
     newFishEvent(Parameters)
     {
-        if (settingsSync.getBool("settingShowFish") === false) return;
-
         const id = Parameters[0];
         const type = Parameters[4];
         const coor = Parameters[1];
         const sizeSpawned = Parameters[2];
         const sizeLeftToSpawn = Parameters[3];
 
-        if (type === null || type === undefined) return;
+        if (!type) return;
         if (!coor) return;
 
         const posX = coor[0];
         const posY = coor[1];
+
+        window.logger?.debug(CATEGORIES.FISHING, 'fish_spawn', {
+            id, type, posX, posY, sizeSpawned, sizeLeftToSpawn,
+            total: sizeSpawned + sizeLeftToSpawn
+        });
 
         this.upsertFish(
             id,
@@ -74,8 +76,6 @@ export class FishingHandler
 
     fishingEnd(Parameters)
     {
-        if (settingsSync.getBool("settingShowFish") === false) return;
-
         window.logger?.debug(CATEGORIES.FISHING, 'fishing_end', {
             parameters: Parameters
         });

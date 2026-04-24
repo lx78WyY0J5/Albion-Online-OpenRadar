@@ -9,6 +9,7 @@ vi.mock('../utils/SettingsSync.js', () => ({
     default: {
         getBool: vi.fn(() => true),
         getJSON: vi.fn(() => null),
+        getNumber: vi.fn((_k, d) => d ?? 0),
     },
 }));
 
@@ -96,9 +97,10 @@ describe('MobsDrawing living resource filter at render', () => {
     // @verified 2026-04-24: hostile enemy (non-living) is not subject to living filter; circle rendering path.
     test('hostile enemy (non-living) is not subject to living filter', () => {
         settingsSync.getJSON.mockReturnValue(null);
+        settingsSync.getBool.mockImplementation(key => key !== 'settingShowMinimumHealthEnemies');
         const hostile = {
             id: 2, typeId: 2067, hX: 10, hY: 20, tier: 5, enchantmentLevel: 0,
-            name: 'T5_MOB_ROAMING_KEEPER_CAMP_UNPROVEN_MALE',
+            name: 'T5_MOB_ROAMING_KEEPER_CAMP_UNPROVEN_MALE', identified: true,
             type: EnemyType.Enemy,
             getCurrentHP: () => 100, maxHealth: 100,
         };
@@ -213,5 +215,174 @@ describe('MobsDrawing DEAD critter routing (user live-test 2026-04-24: dead crit
         };
         drawing.invalidate(ctx, [dead]);
         expect(drawing.DrawCustomImage).toHaveBeenCalledWith(ctx, 10, 20, 'fiber_7_2', 'Resources', 40);
+    });
+});
+
+describe('MobsDrawing minimum HP filter for hostile mobs (settingShowMinimumHealthEnemies + settingTextMinimumHealthEnemies)', () => {
+    let drawing;
+    let ctx;
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        window.logger = {debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn()};
+        drawing = new MobsDrawing();
+        drawing.DrawCustomImage = vi.fn();
+        drawing.transformPoint = vi.fn((x, y) => ({x, y}));
+        drawing.interpolateEntity = vi.fn();
+        drawing.drawTextItems = vi.fn();
+        drawing.drawFilledCircle = vi.fn();
+        drawing.drawDistanceIndicator = vi.fn();
+        drawing.drawHealthBar = vi.fn();
+        drawing.getEnemyColor = vi.fn(() => '#ffffff');
+        drawing.getEnemyTypeName = vi.fn(() => 'unknown');
+        drawing.getScaledSize = vi.fn(s => s);
+        drawing.getScaledFontSize = vi.fn(s => s);
+        ctx = {font: '', measureText: vi.fn(() => ({width: 12}))};
+    });
+
+    function hostile({id = 1, maxHealth = 500, type = EnemyType.Enemy} = {}) {
+        return {id, typeId: 9000, hX: 10, hY: 20, tier: 4, enchantmentLevel: 0, name: 'Hostile', identified: true, type, getCurrentHP: () => maxHealth, maxHealth};
+    }
+
+    // @verified 2026-04-24: when the filter is off, hostile mob below any value renders normally.
+    test('filter off: hostile with maxHealth=100 still renders', () => {
+        settingsSync.getBool.mockImplementation(key => key !== 'settingShowMinimumHealthEnemies');
+        settingsSync.getNumber.mockReturnValue(2100);
+
+        drawing.invalidate(ctx, [hostile({maxHealth: 100})]);
+
+        expect(drawing.drawFilledCircle).toHaveBeenCalled();
+    });
+
+    // @verified 2026-04-24: filter on, maxHealth below threshold skips the mob (no circle drawn).
+    test('filter on: hostile with maxHealth=1000 below threshold=2100 is skipped', () => {
+        settingsSync.getBool.mockImplementation(key => key === 'settingShowMinimumHealthEnemies' || key === 'settingEnemiesHealthBar');
+        settingsSync.getNumber.mockImplementation((key, d) => key === 'settingTextMinimumHealthEnemies' ? 2100 : (d ?? 0));
+
+        drawing.invalidate(ctx, [hostile({maxHealth: 1000})]);
+
+        expect(drawing.drawFilledCircle).not.toHaveBeenCalled();
+    });
+
+    // @verified 2026-04-24: filter on, maxHealth above threshold renders normally.
+    test('filter on: hostile with maxHealth=3000 above threshold=2100 renders', () => {
+        settingsSync.getBool.mockImplementation(key => key === 'settingShowMinimumHealthEnemies' || key === 'settingEnemiesHealthBar' || key === 'settingNormalEnemy');
+        settingsSync.getNumber.mockImplementation((key, d) => key === 'settingTextMinimumHealthEnemies' ? 2100 : (d ?? 0));
+
+        drawing.invalidate(ctx, [hostile({maxHealth: 3000})]);
+
+        expect(drawing.drawFilledCircle).toHaveBeenCalled();
+    });
+
+    // @verified 2026-04-24: filter on, boss (high tier hostile) with high HP still renders.
+    test('filter on: boss with maxHealth=50000 above threshold=2100 renders', () => {
+        settingsSync.getBool.mockImplementation(key => key === 'settingShowMinimumHealthEnemies' || key === 'settingEnemiesHealthBar' || key === 'settingBossEnemy');
+        settingsSync.getNumber.mockImplementation((key, d) => key === 'settingTextMinimumHealthEnemies' ? 2100 : (d ?? 0));
+
+        drawing.invalidate(ctx, [hostile({maxHealth: 50000, type: EnemyType.Boss})]);
+
+        expect(drawing.drawFilledCircle).toHaveBeenCalled();
+    });
+
+    // @verified 2026-04-24: filter applies only to hostile types; living resource is unaffected.
+    test('filter on: living resource is not gated by min HP filter', () => {
+        settingsSync.getBool.mockImplementation(key => key === 'settingShowMinimumHealthEnemies' || key === 'settingEnemiesHealthBar');
+        settingsSync.getJSON.mockImplementation(key => key === 'settingLivingFiberEnchants' ? {e0: Array(8).fill(true), e1: Array(8).fill(true), e2: Array(8).fill(true), e3: Array(8).fill(true), e4: Array(8).fill(true)} : null);
+        settingsSync.getNumber.mockImplementation((key, d) => key === 'settingTextMinimumHealthEnemies' ? 2100 : (d ?? 0));
+
+        const living = {id: 20, typeId: 529, hX: 10, hY: 20, tier: 4, enchantmentLevel: 0, name: 'Fiber', type: EnemyType.LivingHarvestable, getCurrentHP: () => 100, maxHealth: 100};
+        drawing.invalidate(ctx, [living]);
+
+        expect(drawing.DrawCustomImage).toHaveBeenCalled();
+    });
+});
+
+describe('MobsDrawing hostile/drone/events filter at render (moved from spawn)', () => {
+    let drawing;
+    let ctx;
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        settingsSync.getNumber.mockImplementation((_k, d) => d ?? 0);
+        window.logger = {debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn()};
+        drawing = new MobsDrawing();
+        drawing.DrawCustomImage = vi.fn();
+        drawing.transformPoint = vi.fn((x, y) => ({x, y}));
+        drawing.interpolateEntity = vi.fn();
+        drawing.drawTextItems = vi.fn();
+        drawing.drawFilledCircle = vi.fn();
+        drawing.drawDistanceIndicator = vi.fn();
+        drawing.drawHealthBar = vi.fn();
+        drawing.getEnemyColor = vi.fn(() => '#ffffff');
+        drawing.getEnemyTypeName = vi.fn(() => 'unknown');
+        drawing.getScaledSize = vi.fn(s => s);
+        drawing.getScaledFontSize = vi.fn(s => s);
+        ctx = {font: '', measureText: vi.fn(() => ({width: 12}))};
+    });
+
+    function hostile({id = 1, type = EnemyType.Enemy, identified = true, maxHealth = 500} = {}) {
+        return {id, typeId: 9000, hX: 10, hY: 20, tier: 4, enchantmentLevel: 0, name: identified ? 'Known' : null, identified, type, getCurrentHP: () => maxHealth, maxHealth};
+    }
+
+    // @verified 2026-04-24: identified Enemy is skipped at render when settingNormalEnemy is off.
+    test('identified Enemy with settingNormalEnemy=false is not drawn', () => {
+        settingsSync.getBool.mockImplementation(key => key !== 'settingNormalEnemy');
+        drawing.invalidate(ctx, [hostile({type: EnemyType.Enemy})]);
+        expect(drawing.drawFilledCircle).not.toHaveBeenCalled();
+    });
+
+    // @verified 2026-04-24: identified Boss is skipped when settingBossEnemy is off.
+    test('identified Boss with settingBossEnemy=false is not drawn', () => {
+        settingsSync.getBool.mockImplementation(key => key !== 'settingBossEnemy');
+        drawing.invalidate(ctx, [hostile({type: EnemyType.Boss})]);
+        expect(drawing.drawFilledCircle).not.toHaveBeenCalled();
+    });
+
+    // @verified 2026-04-24: identified EnchantedEnemy is drawn when settingEnchantedEnemy is on.
+    test('identified EnchantedEnemy with settingEnchantedEnemy=true is drawn', () => {
+        settingsSync.getBool.mockImplementation(key => key !== 'settingShowMinimumHealthEnemies');
+        drawing.invalidate(ctx, [hostile({type: EnemyType.EnchantedEnemy})]);
+        expect(drawing.drawFilledCircle).toHaveBeenCalled();
+    });
+
+    // @verified 2026-04-24: unidentified mob uses settingShowUnmanagedEnemies gate.
+    test('unidentified mob with settingShowUnmanagedEnemies=false is not drawn', () => {
+        settingsSync.getBool.mockImplementation(key => key !== 'settingShowUnmanagedEnemies');
+        drawing.invalidate(ctx, [hostile({identified: false})]);
+        expect(drawing.drawFilledCircle).not.toHaveBeenCalled();
+    });
+
+    // @verified 2026-04-24: Drone gated by settingAvaloneDrones.
+    test('Drone with settingAvaloneDrones=false is not drawn', () => {
+        settingsSync.getBool.mockImplementation(key => key !== 'settingAvaloneDrones');
+        drawing.invalidate(ctx, [hostile({type: EnemyType.Drone})]);
+        expect(drawing.drawFilledCircle).not.toHaveBeenCalled();
+    });
+
+    // @verified 2026-04-24: Events type gated by settingShowEventEnemies.
+    test('Events enemy with settingShowEventEnemies=false is not drawn', () => {
+        settingsSync.getBool.mockImplementation(key => key !== 'settingShowEventEnemies');
+        drawing.invalidate(ctx, [hostile({type: EnemyType.Events, identified: true})]);
+        expect(drawing.drawFilledCircle).not.toHaveBeenCalled();
+    });
+
+    // @verified 2026-04-24: lastVisibleCount reflects only mobs that passed the render gates.
+    test('lastVisibleCount counts only rendered mobs after filters', () => {
+        settingsSync.getBool.mockImplementation(key => key === 'settingNormalEnemy');
+        const kept = hostile({id: 1, type: EnemyType.Enemy});
+        const dropped = hostile({id: 2, type: EnemyType.Boss});
+        drawing.invalidate(ctx, [kept, dropped]);
+        expect(drawing.lastVisibleCount).toBe(1);
+    });
+
+    // @verified 2026-04-24: lastVisibleCount resets at the start of every invalidate.
+    test('lastVisibleCount resets on each invalidate call', () => {
+        settingsSync.getBool.mockImplementation(() => false);
+        drawing.invalidate(ctx, [hostile({id: 1})]);
+        expect(drawing.lastVisibleCount).toBe(0);
+
+        settingsSync.getBool.mockImplementation(key => key === 'settingNormalEnemy' || key === 'settingEnemiesHealthBar');
+        drawing.invalidate(ctx, [hostile({id: 2})]);
+        expect(drawing.lastVisibleCount).toBe(1);
     });
 });
