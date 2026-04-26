@@ -293,6 +293,23 @@ export class HarvestablesHandler
             allParameters: allParams40
         });
 
+        const isCritterCorpse = mobileTypeId !== null
+            && mobileTypeId !== 65535
+            && mobileTypeId !== -1
+            && mobileTypeId !== undefined;
+        if (isCritterCorpse) {
+            const dbInfo = window.mobsDatabase?.getMobInfo(mobileTypeId);
+            window.logger?.info(CATEGORIES.HARVESTABLES, 'CritterCorpseTierAudit', {
+                mobileTypeId,
+                serverTier: tier,
+                dbCombatTier: dbInfo?.combatTier ?? null,
+                dbLootTier: dbInfo?.tier ?? null,
+                dbUniqueName: dbInfo?.uniqueName ?? null,
+                dbLootType: dbInfo?.lootType ?? null,
+                tierDelta: dbInfo ? (tier - (dbInfo.combatTier ?? 0)) : null
+            });
+        }
+
         this.UpdateHarvestable(id, type, tier, location[0], location[1], enchant, size, mobileTypeId);
     }
 

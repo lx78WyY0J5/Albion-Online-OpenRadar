@@ -24,13 +24,9 @@
 import {CATEGORIES} from '../constants/LoggerConstants.js';
 
 export class MobsDatabase {
-    /**
-     * OFFSET between mobs.json array index and server TypeID
-     * Discovery: Index in mobs.json = server TypeID - 15
-     * Reference: DeathEye C# code: TypeId = Convert.ToInt32(parameters[1]) - 15;
-     * Verified: T4_MOB_HIDE_SWAMP_MONITORLIZARD at index 410 = TypeID 425
-     */
-    static OFFSET = 15;
+    // Anchor: wire 422 (hp=20) -> idx 406 = T1_MOB_HIDE_SWAMP_TOAD.
+    // Re-verify with tools/offset-validate after each DB refresh.
+    static OFFSET = 16;
 
     constructor() {
         /**
