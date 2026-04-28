@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -69,6 +70,20 @@ type StatusMsg struct {
 	CaptureRunning bool
 }
 
+// CaptureSummary mirrors internal/capture.CaptureSummary so internal/ui has no
+// dependency on internal/capture.
+type CaptureSummary struct {
+	Description string
+	Address     string
+	Category    string
+}
+
+type CaptureStateMsg struct {
+	Active       []CaptureSummary
+	LanAddresses []string
+	Status       string
+}
+
 type RestartMsg struct{}
 
 type TickMsg time.Time
@@ -95,7 +110,12 @@ type Dashboard struct {
 	lanServerURL string
 	lanWsURL     string
 	mode         string
-	adapterIP    string
+	port         int
+
+	// Capture interfaces and LAN addresses (sourced from Manager.State() poll)
+	captureInterfaces []CaptureSummary
+	lanAddresses      []string
+	captureStatus     string
 
 	// Status indicators
 	httpRunning    bool
@@ -155,7 +175,7 @@ type Dashboard struct {
 }
 
 // NewDashboard creates a new dashboard model
-func NewDashboard(version string, port int, devMode bool, adapterIP string) Dashboard {
+func NewDashboard(version string, port int, devMode bool, lanAddresses []string, captures []CaptureSummary) Dashboard {
 	mode := "Production"
 	if devMode {
 		mode = "Development"
@@ -166,25 +186,27 @@ func NewDashboard(version string, port int, devMode bool, adapterIP string) Dash
 	ti.CharLimit = 50
 
 	d := Dashboard{
-		version:          version,
-		serverURL:        fmt.Sprintf("http://localhost:%d", port),
-		wsURL:            fmt.Sprintf("ws://localhost:%d/ws", port),
-		mode:             mode,
-		adapterIP:        adapterIP,
-		startTime:        time.Now(),
-		logs:             make([]LogEntry, 0, maxLogs),
-		packetsHistory:   make([]uint64, 0, sparklineHistory),
-		memoryHistory:    make([]float64, 0, sparklineHistory),
-		memorySysHistory: make([]float64, 0, sparklineHistory),
-		wsBatchHistory:   make([]uint64, 0, sparklineHistory),
-		autoScroll:       true,
-		currentTab:       TabLogs,
-		logFilter:        LevelAll,
-		searchInput:      ti,
+		version:           version,
+		serverURL:         fmt.Sprintf("http://localhost:%d", port),
+		wsURL:             fmt.Sprintf("ws://localhost:%d/ws", port),
+		mode:              mode,
+		port:              port,
+		startTime:         time.Now(),
+		logs:              make([]LogEntry, 0, maxLogs),
+		packetsHistory:    make([]uint64, 0, sparklineHistory),
+		memoryHistory:     make([]float64, 0, sparklineHistory),
+		memorySysHistory:  make([]float64, 0, sparklineHistory),
+		wsBatchHistory:    make([]uint64, 0, sparklineHistory),
+		autoScroll:        true,
+		currentTab:        TabLogs,
+		logFilter:         LevelAll,
+		searchInput:       ti,
+		captureInterfaces: captures,
+		lanAddresses:      lanAddresses,
 	}
-	if adapterIP != "" && adapterIP != "127.0.0.1" {
-		d.lanServerURL = fmt.Sprintf("http://%s:%d", adapterIP, port)
-		d.lanWsURL = fmt.Sprintf("ws://%s:%d/ws", adapterIP, port)
+	if len(lanAddresses) > 0 && lanAddresses[0] != "127.0.0.1" {
+		d.lanServerURL = fmt.Sprintf("http://%s:%d", lanAddresses[0], port)
+		d.lanWsURL = fmt.Sprintf("ws://%s:%d/ws", lanAddresses[0], port)
 	}
 	return d
 }
@@ -356,6 +378,18 @@ func (d Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		d.wsRunning = msg.WSRunning
 		d.captureRunning = msg.CaptureRunning
 
+	case CaptureStateMsg:
+		d.captureInterfaces = msg.Active
+		d.lanAddresses = msg.LanAddresses
+		d.captureStatus = msg.Status
+		if len(msg.LanAddresses) > 0 && msg.LanAddresses[0] != "127.0.0.1" {
+			d.lanServerURL = fmt.Sprintf("http://%s:%d", msg.LanAddresses[0], d.port)
+			d.lanWsURL = fmt.Sprintf("ws://%s:%d/ws", msg.LanAddresses[0], d.port)
+		} else {
+			d.lanServerURL = ""
+			d.lanWsURL = ""
+		}
+
 	case TickMsg:
 		cmds = append(cmds, tickCmd())
 	}
@@ -485,16 +519,17 @@ func (d Dashboard) View() string {
 
 func (d *Dashboard) renderHeader() string {
 	// Title and status indicators
-	title := TitleStyle.Render(fmt.Sprintf("OpenRadar v%s", d.version))
+	title := TitleStyle.Render("OpenRadar v" + d.version)
 
 	httpStatus := statusIndicator(d.httpRunning, "HTTP")
 	wsStatus := statusIndicator(d.wsRunning, "WS")
 	captureStatus := statusIndicator(d.captureRunning, "CAP")
 	status := fmt.Sprintf("%s %s %s", httpStatus, wsStatus, captureStatus)
 
-	// Mode and adapter
-	mode := ModeStyle.Render(fmt.Sprintf("Mode: %s", d.mode))
-	adapter := TimestampStyle.Render(fmt.Sprintf("Adapter: %s", d.adapterIP))
+	// Mode and capture interfaces
+	mode := ModeStyle.Render("Mode: " + d.mode)
+	captureLine := "Capture: " + formatCaptureLine(d.captureInterfaces)
+	adapter := TimestampStyle.Render(captureLine)
 
 	httpLine := d.serverURL
 	wsLine := d.wsURL
@@ -506,7 +541,7 @@ func (d *Dashboard) renderHeader() string {
 	wsURL := URLStyle.Render(wsLine)
 
 	// Started time
-	startedAt := TimestampStyle.Render(fmt.Sprintf("Started: %s", d.startTime.Format("15:04:05")))
+	startedAt := TimestampStyle.Render("Started: " + d.startTime.Format("15:04:05"))
 
 	// Tabs
 	tabs := d.renderTabs()
@@ -575,11 +610,11 @@ func (d *Dashboard) renderFooter() string {
 		StatLabelStyle.Render("Batch:"),
 		StatValueStyle.Render(fmt.Sprintf("%s/%s", formatNumber(d.wsBatches), formatNumber(d.wsMessages))),
 		StatLabelStyle.Render("WS:"),
-		StatValueStyle.Render(fmt.Sprintf("%d", d.wsClients)),
+		StatValueStyle.Render(strconv.Itoa(d.wsClients)),
 		StatLabelStyle.Render("Err:"),
 		StatValueStyle.Render(formatNumber(d.errors)),
 		StatLabelStyle.Render("Logs:"),
-		StatValueStyle.Render(fmt.Sprintf("%d", len(d.logs))),
+		StatValueStyle.Render(strconv.Itoa(len(d.logs))),
 	)
 
 	// Filter and scroll status
@@ -589,7 +624,7 @@ func (d *Dashboard) renderFooter() string {
 		scrollStr = " | " + ModeStyle.Render("PAUSED")
 	}
 	if d.searchQuery != "" {
-		scrollStr += " | " + URLStyle.Render(fmt.Sprintf("Search: %s", d.searchQuery))
+		scrollStr += " | " + URLStyle.Render("Search: "+d.searchQuery)
 	}
 	statusLine := filterStr + scrollStr
 
@@ -669,12 +704,12 @@ func (d *Dashboard) renderStatsView() string {
 		stat("Err rate:", fmt.Sprintf("%.2f%%", errorRate), d.getErrorColor(errorRate)),
 		"",
 		section("🔌", "WebSocket"),
-		stat("Clients:", fmt.Sprintf("%d", d.wsClients), ColorPrimary),
+		stat("Clients:", strconv.Itoa(d.wsClients), ColorPrimary),
 		stat("Batches:", formatNumber(d.wsBatches), ColorSuccess),
 		stat("Batch/s:", fmt.Sprintf("%.0f", batchesPerSec), ColorPrimary),
 		stat("Messages:", formatNumber(d.wsMessages), ColorSuccess),
 		stat("Avg/batch:", fmt.Sprintf("%.1f", avgMsgsPerBatch), ColorWarning),
-		stat("Queue:", fmt.Sprintf("%d", d.wsQueueSize), d.getQueueColor()),
+		stat("Queue:", strconv.Itoa(d.wsQueueSize), d.getQueueColor()),
 		"",
 		section("📡", "Traffic"),
 		stat("RX total:", formatBytes(d.bytesReceived), ColorPrimary),
@@ -700,7 +735,7 @@ func (d *Dashboard) renderStatsView() string {
 		section("📝", "Logging"),
 		stat("Entries:", formatNumber(d.logEntries), ColorSuccess),
 		stat("Batches:", formatNumber(d.logBatches), ColorPrimary),
-		stat("Buffer:", fmt.Sprintf("%d", d.logBufferSize), ColorWarning),
+		stat("Buffer:", strconv.Itoa(d.logBufferSize), ColorWarning),
 	}
 
 	colWidth := (d.width - 4) / 2
@@ -764,7 +799,8 @@ func (d *Dashboard) renderConfigView() string {
 		cfgLine("Mode:", d.mode, ModeStyle),
 		cfgLine("HTTP URL:", d.serverURL, URLStyle),
 		cfgLine("WS URL:", d.wsURL, URLStyle),
-		cfgLine("Adapter:", d.adapterIP, StatValueStyle),
+		cfgLine("Capture:", formatCaptureLine(d.captureInterfaces), StatValueStyle),
+		cfgLine("LAN:", strings.Join(d.lanAddresses, ", "), StatValueStyle),
 		"",
 		section("ℹ️", "About"),
 		cfgLine("", "OpenRadar - Albion Online", StatLabelStyle),
@@ -809,7 +845,7 @@ func renderSparkline[T uint64 | float64](data []T, color lipgloss.Color) string 
 	if len(data) > sparklineDisplayLen {
 		displayData = make([]T, sparklineDisplayLen)
 		ratio := float64(len(data)) / float64(sparklineDisplayLen)
-		for i := 0; i < sparklineDisplayLen; i++ {
+		for i := range sparklineDisplayLen {
 			// Average the values in each bucket
 			start := int(float64(i) * ratio)
 			end := int(float64(i+1) * ratio)
@@ -887,7 +923,7 @@ func avgVal[T uint64 | float64](data []T) float64 {
 }
 
 func formatNumber(n uint64) string {
-	str := fmt.Sprintf("%d", n)
+	str := strconv.FormatUint(n, 10)
 	if len(str) <= 3 {
 		return str
 	}
@@ -913,6 +949,17 @@ func formatBytes(b uint64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+func formatCaptureLine(summaries []CaptureSummary) string {
+	if len(summaries) == 0 {
+		return "(awaiting)"
+	}
+	parts := make([]string, 0, len(summaries))
+	for _, c := range summaries {
+		parts = append(parts, fmt.Sprintf("%s (%s)", c.Description, c.Address))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func formatDuration(d time.Duration) string {
