@@ -10,6 +10,7 @@ vi.mock('../utils/SettingsSync.js', () => ({
         getBool: vi.fn(() => true),
         getJSON: vi.fn(() => null),
         getNumber: vi.fn((_k, d) => d ?? 0),
+        getFloat: vi.fn(() => null),
     },
 }));
 
@@ -36,9 +37,10 @@ describe('MobsDrawing living resource filter at render', () => {
         drawing.getEnemyColor = vi.fn(() => '#ffffff');
         drawing.getEnemyTypeName = vi.fn(() => 'unknown');
         drawing.getScaledSize = vi.fn(s => s);
+        drawing.getMarkerSize = vi.fn(s => s);
         drawing.getScaledFontSize = vi.fn(s => s);
         ctx = {font: '', measureText: vi.fn(() => ({width: 12}))};
-        settingsSync.getBool.mockReturnValue(true);
+        settingsSync.getBool.mockImplementation(key => key !== 'settingResourceColorBadges');
     });
 
     function livingMob({id = 1, tier = 4, enchant = 0, name = 'Fiber'} = {}) {
@@ -69,7 +71,7 @@ describe('MobsDrawing living resource filter at render', () => {
                 : null
         );
         drawing.invalidate(ctx, [livingMob({tier: 4, enchant: 2})]);
-        expect(drawing.DrawCustomImage).toHaveBeenCalledWith(ctx, 10, 20, 'fiber_4_2', 'Resources', 40);
+        expect(drawing.DrawCustomImage).toHaveBeenCalledWith(ctx, 10, 20, 'fiber_4_2', 'Resources', 32);
     });
 
     // @verified 2026-04-24: living Hide resolves via settingLivingHideEnchants correctly.
@@ -80,7 +82,7 @@ describe('MobsDrawing living resource filter at render', () => {
                 : null
         );
         drawing.invalidate(ctx, [livingMob({tier: 5, enchant: 3, name: 'Hide'})]);
-        expect(drawing.DrawCustomImage).toHaveBeenCalledWith(ctx, 10, 20, 'hide_5_3', 'Resources', 40);
+        expect(drawing.DrawCustomImage).toHaveBeenCalledWith(ctx, 10, 20, 'hide_5_3', 'Resources', 32);
     });
 
     // @verified 2026-04-24: tier-specific off still blocks even if enchant setting is on for other tiers.
@@ -107,6 +109,63 @@ describe('MobsDrawing living resource filter at render', () => {
         drawing.invalidate(ctx, [hostile]);
         expect(drawing.drawFilledCircle).toHaveBeenCalled();
     });
+
+    // @verified 2026-05-01: settingResourceColorBadges=true on a living harvestable draws a badge with isLiving=true.
+    test('living Fiber e2 with settingResourceColorBadges=true draws a Fiber badge with gold border', () => {
+        drawing.drawResourceBadge = vi.fn();
+        settingsSync.getJSON.mockImplementation(key =>
+            key === 'settingLivingFiberEnchants'
+                ? {e0: Array(8).fill(false), e1: Array(8).fill(false), e2: [false, false, false, true, false, false, false, false], e3: Array(8).fill(false), e4: Array(8).fill(false)}
+                : null
+        );
+        settingsSync.getBool.mockImplementation(key => key === 'settingResourceColorBadges');
+        drawing.invalidate(ctx, [livingMob({tier: 4, enchant: 2})]);
+        expect(drawing.drawResourceBadge).toHaveBeenCalledWith(ctx, 10, 20, 32, 'Fiber', 4, 2, true);
+        expect(drawing.DrawCustomImage).not.toHaveBeenCalled();
+    });
+
+    // @verified 2026-05-01: living Skinnable Hide with badges on routes to Hide category badge.
+    test('living Hide e3 LivingSkinnable with settingResourceColorBadges=true draws a Hide badge', () => {
+        drawing.drawResourceBadge = vi.fn();
+        settingsSync.getJSON.mockImplementation(key =>
+            key === 'settingLivingHideEnchants'
+                ? {e0: Array(8).fill(false), e1: Array(8).fill(false), e2: Array(8).fill(false), e3: [false, false, false, false, true, false, false, false], e4: Array(8).fill(false)}
+                : null
+        );
+        settingsSync.getBool.mockImplementation(key => key === 'settingResourceColorBadges');
+        drawing.invalidate(ctx, [livingMob({tier: 5, enchant: 3, name: 'Hide'})]);
+        expect(drawing.drawResourceBadge).toHaveBeenCalledWith(ctx, 10, 20, 32, 'Hide', 5, 3, true);
+    });
+
+    // @verified 2026-05-01: badge mode falls back to DrawCustomImage when getResourceCategory returns null on a living mob.
+    // Stub category resolution to null even though the living filter passes, to exercise the safety branch.
+    test('living mob badge mode falls back to DrawCustomImage when getResourceCategory returns null', () => {
+        drawing.drawResourceBadge = vi.fn();
+        drawing.getResourceCategory = vi.fn(() => null);
+        settingsSync.getJSON.mockImplementation(key =>
+            key === 'settingLivingFiberEnchants' ? {e0: Array(8).fill(true), e1: Array(8).fill(true), e2: Array(8).fill(true), e3: Array(8).fill(true), e4: Array(8).fill(true)} : null
+        );
+        settingsSync.getBool.mockImplementation(key => key === 'settingResourceColorBadges');
+        drawing.invalidate(ctx, [livingMob({tier: 4, enchant: 0})]);
+        expect(drawing.drawResourceBadge).not.toHaveBeenCalled();
+        expect(drawing.DrawCustomImage).toHaveBeenCalled();
+    });
+
+    // @verified 2026-05-01: hostile NPC is unaffected by settingResourceColorBadges (badges apply to living harvestables only).
+    test('hostile NPC stays as colored circle even when settingResourceColorBadges=true', () => {
+        drawing.drawResourceBadge = vi.fn();
+        settingsSync.getJSON.mockReturnValue(null);
+        settingsSync.getBool.mockImplementation(key => key === 'settingResourceColorBadges' || key === 'settingNormalEnemy' || key === 'settingEnemiesHealthBar');
+        const hostile = {
+            id: 2, typeId: 2067, hX: 10, hY: 20, tier: 5, enchantmentLevel: 0,
+            name: 'T5_MOB_ROAMING_KEEPER_CAMP_UNPROVEN_MALE', identified: true,
+            type: EnemyType.Enemy,
+            getCurrentHP: () => 100, maxHealth: 100,
+        };
+        drawing.invalidate(ctx, [hostile]);
+        expect(drawing.drawResourceBadge).not.toHaveBeenCalled();
+        expect(drawing.drawFilledCircle).toHaveBeenCalled();
+    });
 });
 
 describe('MobsDrawing DEAD critter routing (user live-test 2026-04-24: dead critters stay Living)', () => {
@@ -129,9 +188,10 @@ describe('MobsDrawing DEAD critter routing (user live-test 2026-04-24: dead crit
         drawing.getEnemyColor = vi.fn(() => '#ffffff');
         drawing.getEnemyTypeName = vi.fn(() => 'unknown');
         drawing.getScaledSize = vi.fn(s => s);
+        drawing.getMarkerSize = vi.fn(s => s);
         drawing.getScaledFontSize = vi.fn(s => s);
         ctx = {font: '', measureText: vi.fn(() => ({width: 12}))};
-        settingsSync.getBool.mockReturnValue(true);
+        settingsSync.getBool.mockImplementation(key => key !== 'settingResourceColorBadges');
         mobsHandler = new MobsHandler();
     });
 
@@ -169,7 +229,7 @@ describe('MobsDrawing DEAD critter routing (user live-test 2026-04-24: dead crit
         mobsHandler.NewMobEvent(p);
         drawing.invalidate(ctx, mobsHandler.getMobList(), []);
 
-        expect(drawing.DrawCustomImage).toHaveBeenCalledWith(ctx, expect.any(Number), expect.any(Number), 'fiber_6_0', 'Resources', 40);
+        expect(drawing.DrawCustomImage).toHaveBeenCalledWith(ctx, expect.any(Number), expect.any(Number), 'fiber_6_0', 'Resources', 32);
     });
 
     // @verified 2026-04-24: pcap-derived, Static filter has no effect on DEAD carcasses; turning Living off hides them.
@@ -196,7 +256,7 @@ describe('MobsDrawing DEAD critter routing (user live-test 2026-04-24: dead crit
         mobsHandler.NewMobEvent(p);
         drawing.invalidate(ctx, mobsHandler.getMobList(), []);
 
-        expect(drawing.DrawCustomImage).toHaveBeenCalledWith(ctx, expect.any(Number), expect.any(Number), 'fiber_5_0', 'Resources', 40);
+        expect(drawing.DrawCustomImage).toHaveBeenCalledWith(ctx, expect.any(Number), expect.any(Number), 'fiber_5_0', 'Resources', 32);
     });
 
     // @verified 2026-04-24: synthetic, carcass with post-spawn enchant is gated by the matching cell.
@@ -214,7 +274,7 @@ describe('MobsDrawing DEAD critter routing (user live-test 2026-04-24: dead crit
             getCurrentHP: () => 100, maxHealth: 100,
         };
         drawing.invalidate(ctx, [dead]);
-        expect(drawing.DrawCustomImage).toHaveBeenCalledWith(ctx, 10, 20, 'fiber_7_2', 'Resources', 40);
+        expect(drawing.DrawCustomImage).toHaveBeenCalledWith(ctx, 10, 20, 'fiber_7_2', 'Resources', 32);
     });
 });
 
@@ -236,6 +296,7 @@ describe('MobsDrawing minimum HP filter for hostile mobs (settingShowMinimumHeal
         drawing.getEnemyColor = vi.fn(() => '#ffffff');
         drawing.getEnemyTypeName = vi.fn(() => 'unknown');
         drawing.getScaledSize = vi.fn(s => s);
+        drawing.getMarkerSize = vi.fn(s => s);
         drawing.getScaledFontSize = vi.fn(s => s);
         ctx = {font: '', measureText: vi.fn(() => ({width: 12}))};
     });
@@ -316,6 +377,7 @@ describe('MobsDrawing hostile/drone/events filter at render (moved from spawn)',
         drawing.getEnemyColor = vi.fn(() => '#ffffff');
         drawing.getEnemyTypeName = vi.fn(() => 'unknown');
         drawing.getScaledSize = vi.fn(s => s);
+        drawing.getMarkerSize = vi.fn(s => s);
         drawing.getScaledFontSize = vi.fn(s => s);
         ctx = {font: '', measureText: vi.fn(() => ({width: 12}))};
     });
@@ -384,5 +446,13 @@ describe('MobsDrawing hostile/drone/events filter at render (moved from spawn)',
         settingsSync.getBool.mockImplementation(key => key === 'settingNormalEnemy' || key === 'settingEnemiesHealthBar');
         drawing.invalidate(ctx, [hostile({id: 2})]);
         expect(drawing.lastVisibleCount).toBe(1);
+    });
+
+    // @verified 2026-05-01: hostile NPC marker uses getMarkerSize(6), tighter than the previous getScaledSize(7).
+    test('hostile NPC marker radius is getMarkerSize(6)', () => {
+        settingsSync.getBool.mockImplementation(key => key === 'settingNormalEnemy' || key === 'settingEnemiesHealthBar');
+        drawing.invalidate(ctx, [hostile({id: 1, type: EnemyType.Enemy})]);
+        expect(drawing.drawFilledCircle).toHaveBeenCalledWith(ctx, 10, 20, 6, expect.any(String));
+        expect(drawing.getMarkerSize).toHaveBeenCalledWith(6);
     });
 });

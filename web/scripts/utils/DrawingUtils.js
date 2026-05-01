@@ -17,8 +17,13 @@ export class DrawingUtils {
         if (typeof window !== 'undefined' && window.innerWidth < 640) return 0.9;
         return settingsSync.getFloat('settingRadarZoom') || 1.0;
     }
+    getIconSizeMultiplier() {
+        const v = settingsSync.getFloat('settingIconSize');
+        return v && !Number.isNaN(v) ? v : 1.0;
+    }
     getCanvasScale() { return this.getCanvasSize() / 500; }
     getScaledSize(baseSize) { return baseSize * this.getZoomLevel() * this.getCanvasScale(); }
+    getMarkerSize(baseSize) { return this.getScaledSize(baseSize) * this.getIconSizeMultiplier(); }
     getScaledFontSize(baseFontSize, minFontSize = 7) { return Math.max(minFontSize, baseFontSize * this.getZoomLevel() * this.getCanvasScale()); }
     getCanvasSize() {
         if (typeof document !== 'undefined') {
@@ -34,6 +39,68 @@ export class DrawingUtils {
         context.arc(x, y, radius, 0, 2 * Math.PI);
         context.fillStyle = color;
         context.fill();
+    }
+
+    getResourceCategory(name) {
+        if (typeof name !== 'string' || !name) return null;
+        const n = name.toLowerCase();
+        if (n.includes('fiber')) return 'Fiber';
+        if (n.includes('hide')) return 'Hide';
+        if (n.includes('wood') || n.includes('log')) return 'Wood';
+        if (n.includes('ore')) return 'Ore';
+        if (n.includes('rock')) return 'Rock';
+        return null;
+    }
+
+    getResourceCategoryColor(category) {
+        switch (category) {
+            case 'Fiber': return '#4CAF50';
+            case 'Hide':  return '#A1887F';
+            case 'Wood':  return '#8D6E63';
+            case 'Ore':   return '#42A5F5';
+            case 'Rock':  return '#9C27B0';
+            default:      return null;
+        }
+    }
+
+    drawResourceBadge(ctx, x, y, baseSize, category, tier, enchant, isLiving) {
+        const size = this.getMarkerSize(baseSize);
+        const color = this.getResourceCategoryColor(category) || '#4169E1';
+        const half = size / 2;
+
+        ctx.save();
+
+        ctx.fillStyle = color;
+        ctx.fillRect(x - half, y - half, size, size);
+
+        ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x - half, y - half, size, size);
+
+        if (isLiving) {
+            ctx.strokeStyle = '#FFD700';
+            ctx.lineWidth = Math.max(2, this.getMarkerSize(2));
+            ctx.strokeRect(x - half, y - half, size, size);
+        }
+
+        const tierFontSize = this.getMarkerSize(baseSize * 0.55);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.shadowColor = 'rgba(0,0,0,0.7)';
+        ctx.shadowBlur = 3;
+        ctx.font = `bold ${tierFontSize}px ${this.fontFamily}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        if (enchant > 0) {
+            ctx.fillText(`T${tier}`, x - size * 0.12, y);
+            const enchantFontSize = this.getMarkerSize(baseSize * 0.30);
+            ctx.font = `bold ${enchantFontSize}px ${this.fontFamily}`;
+            ctx.fillText(`+${enchant}`, x + size * 0.28, y - size * 0.18);
+        } else {
+            ctx.fillText(`T${tier}`, x, y);
+        }
+
+        ctx.restore();
     }
 
     lerp(a, b, t) { return a + (b - a) * t; }
@@ -57,10 +124,10 @@ export class DrawingUtils {
         const folderR = (!folder) ? "" : folder + "/";
         const src = "/images/" + folderR + imageName + ".webp";
         const preloadedImage = imageCache.GetPreloadedImage(src, folder);
-        const scaledSize = this.getScaledSize(size);
+        const scaledSize = this.getMarkerSize(size);
 
         if (preloadedImage === null) {
-            this.drawFilledCircle(ctx, x, y, this.getScaledSize(10), "#4169E1");
+            this.drawFilledCircle(ctx, x, y, this.getMarkerSize(10), "#4169E1");
             return;
         }
 
@@ -117,9 +184,9 @@ export class DrawingUtils {
         const rectHeight = this.getScaledSize(14);
         const radius = this.getScaledSize(4);
 
-        const offset8 = this.getScaledSize(8);
-        const offset6 = this.getScaledSize(6);
-        const offset20 = this.getScaledSize(20);
+        const offset8 = this.getMarkerSize(8);
+        const offset6 = this.getMarkerSize(6);
+        const offset20 = this.getMarkerSize(20);
 
         const positions = {
             'bottom-right': { x: x + offset8, y: y + offset6 },
@@ -181,8 +248,8 @@ export class DrawingUtils {
         const rectWidth = textWidth + (padding * 2);
         const rectHeight = this.getScaledSize(12);
         const radius = this.getScaledSize(3);
-        const rectX = x - rectWidth - this.getScaledSize(8);
-        const rectY = y - this.getScaledSize(20);
+        const rectX = x - rectWidth - this.getMarkerSize(8);
+        const rectY = y - this.getMarkerSize(20);
 
         let color;
         if (realDistance < 10) color = "rgba(0,200,0,0.85)";
@@ -221,7 +288,7 @@ export class DrawingUtils {
         const hpPercent = Math.max(0, Math.min(100, (currentHP / maxHP) * 100));
         const fillWidth = (width * hpPercent) / 100;
         const barX = x - width / 2;
-        const barY = y + this.getScaledSize(16);
+        const barY = y + this.getMarkerSize(16);
 
         ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
         ctx.fillRect(barX, barY, width, height);

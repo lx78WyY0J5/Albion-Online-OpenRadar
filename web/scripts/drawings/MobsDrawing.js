@@ -108,8 +108,19 @@ export class MobsDrawing extends DrawingUtils
 
             this.lastVisibleCount++;
 
-            if (imageName !== undefined && imageFolder !== undefined)
-                this.DrawCustomImage(ctx, point.x, point.y, imageName, imageFolder, 40); // Size scaled in DrawCustomImage
+            if (imageName !== undefined && imageFolder !== undefined) {
+                const useBadge = isLivingResource && settingsSync.getBool('settingResourceColorBadges');
+                const category = useBadge ? this.getResourceCategory(mobOne.name) : null;
+                const baseSize = isLivingResource ? 32 : 40;
+                if (useBadge && category) {
+                    this.drawResourceBadge(
+                        ctx, point.x, point.y, baseSize,
+                        category, mobOne.tier, mobOne.enchantmentLevel, true
+                    );
+                } else {
+                    this.DrawCustomImage(ctx, point.x, point.y, imageName, imageFolder, baseSize);
+                }
+            }
             else {
                 // Color-coded circles by enemy type
                 const color = this.getEnemyColor(mobOne.type);
@@ -125,7 +136,7 @@ export class MobsDrawing extends DrawingUtils
                     mobOne._debugLogged = true;
                 }
 
-                this.drawFilledCircle(ctx, point.x, point.y, this.getScaledSize(7), color);
+                this.drawFilledCircle(ctx, point.x, point.y, this.getMarkerSize(6), color);
             }
 
             // 📍 Distance indicator for living resources (if enabled) - use game-units (hX/hY)
@@ -146,8 +157,8 @@ export class MobsDrawing extends DrawingUtils
             }
 
             // 📊 Display enemy information below the mob (offsets scaled with zoom)
-            const offset36 = this.getScaledSize(36);
-            const offset26 = this.getScaledSize(26);
+            const offset36 = this.getMarkerSize(36);
+            const offset26 = this.getMarkerSize(26);
             const offset12 = this.getScaledSize(12);
             let currentYOffset = drawHealthBar ? offset36 : offset26; // Start position based on health bar presence
 
