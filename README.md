@@ -201,17 +201,20 @@ Check [TODO.md](docs/project/TODO.md) for what's coming:
 
 The stabilization release. Game updates that broke prior builds are caught up, the capture path survives ExitLag and VPN toggles, and the logging system finally makes sense.
 
+### Radiant Wilds Protocol18 stabilization
+
+v2.1.1 ported the wire parser to Protocol18 so the radar would speak again after the Radiant Wilds patch broke packet parsing. v2.2.0 finishes the cleanup that follows any protocol revision: Photon hashtable marshal failure that silently dropped Join responses (#78), Black Zone parameter going broken in the same revision (#87), Mist clones inheriting wrong PvP type (#103), TypeID OFFSET drift exposed across all critters (#93), 452 stale event-code values synced to upstream (#70), and a router contract pinned by pcap fixtures so the next protocol bump catches us early (#64).
+
 ### Game updates caught up
 
-- **Protocol18 port**: deserializer rewritten with pcap-fixture-backed tests for every event the radar consumes.
-- **Mists detection**: portals, feu follets, and wisp cages back on the radar. Rarity reads from `Parameters[8]`, the same slot non-Mists dungeons use (which fixes Morgana, Keeper, Undead, Royal Solo while we are at it).
-- **Living harvest tier**: tier on the radar matches the in-game tooltip after a TypeID OFFSET=16 confirmation against 6469 pcap events.
+- **Mists detection**: portals, feu follets, and wisp cages back on the radar. Rarity reads from `Parameters[8]` (the same slot non-Mists dungeons use).
+- **Tier and resource detection across the board**: living mob tiers match the in-game tooltip (TypeID OFFSET=16 validated on 6,469 pcap events with zero outliers); static + DEAD harvestables route through the correct filter at render time; the `-1` / `0xFFFF` mobileTypeId sentinel correctly routes to the static path.
 
 ### Network
 
-- **Multi-interface capture**: listen on WiFi and Ethernet at the same time so an ExitLag or VPN toggle never silences the radar.
-- **ExitLag support**: NDIS LWF positioning understood; cases A, B, C covered.
-- **`network.json` config**: stable interface identifiers replace IP-keyed `ip.txt`. Migration runs once.
+- **Multi-interface capture**: listen on WiFi and Ethernet at the same time, so VPN starts, ExitLag activations, and WiFi-to-Ethernet handoffs no longer silence the radar.
+- **ExitLag support**: cases A/B/C covered; users on the default WFP redirection should switch to NDIS (Legacy) in ExitLag's advanced settings (the README screenshots the exact path).
+- **Pick interfaces from the browser**: **Settings → Network** lets you check / uncheck capture interfaces live. `network.json` with stable interface identifiers replaces `ip.txt` (one-shot migration on first boot).
 
 ### LAN access
 
@@ -227,14 +230,15 @@ The stabilization release. Game updates that broke prior builds are caught up, t
 
 ### UI polish
 
-- **Resource icon size slider**: dense screens stay readable.
-- **Per-rarity color badges**: replaces the single-dot indicator.
-- **Collapsible network panel**: in the radar overlay.
+- **Icon Size slider** (0.5x-2.0x): scales markers and circles for dense screens.
+- **Resource Color Badges** (toggle, off by default): for players who want a tier-first view without the game icons. When on, harvestables render as `T<tier>+<enchant>` colored squares per family; living variants get a gold border.
+- **Picture-in-Picture alerts**: Pulsating Border and Screen Flash now mirror on the radar UI canvas, so PiP and overlay viewers see threats too.
 - **Mist instance pvpType**: inherits from the parent cluster, no more wrong "safe" tagging in Mists.
+- **Every Avalonian / Roads dungeon family back on the radar**: T6_MORGANA, T6_KEEPER, T6_UNDEAD, T5_PORTAL_ROYAL_SOLO, T6_PORTAL. Solo and Group alike were silently filtered out before.
 
 ### Stability
 
-- **Real-DB tests**: 351 frontend tests across 14 suites, loading `web/ao-bin-dumps/*.min.json` instead of mocks.
+- **848 tests across the stack**: 591 frontend tests in 22 Vitest suites + 257 Go tests across `internal/photon`, `internal/capture`, `internal/server`, `internal/logger`, `internal/ui`, `cmd/radar`, plus tooling. Real game DBs back every test that touches the database layer.
 - **Embed safety**: production binary cannot ship test files or fixtures.
 - **Shutdown reliability**: pcap close ordering reworked, no more goroutine polling a freed handle.
 
