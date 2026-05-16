@@ -13,7 +13,9 @@ function syncMapIsBZ() {
 
 // Map change debouncing
 const MAP_CHANGE_DEBOUNCE_MS = 4000;
+const MIST_CHOICE_TTL_MS = 30000;
 let lastMapChangeTime = 0;
+let pendingMistChoice = null;
 
 // Local player position (relative coords)
 let lpX = 0.0;
@@ -81,6 +83,14 @@ function resolveMistOriginId(previousMapId) {
         : null;
 }
 
+function consumePendingMistChoice() {
+    if (!pendingMistChoice) return null;
+    const age = Date.now() - pendingMistChoice.ts;
+    const choice = age <= MIST_CHOICE_TTL_MS ? pendingMistChoice : null;
+    pendingMistChoice = null;
+    return choice;
+}
+
 function applyMapChange(newMapId, logEvent, extraLogFields = {}) {
     const previousMapId = map.id;
     map.id = newMapId;
@@ -88,12 +98,15 @@ function applyMapChange(newMapId, logEvent, extraLogFields = {}) {
     lastMapChangeTime = Date.now();
     if (typeof newMapId === 'string' && newMapId.startsWith('@MISTS@')) {
         const originId = resolveMistOriginId(previousMapId);
-        if (originId && zonesDatabase.setMistOverride(newMapId, originId)) {
+        const choice = consumePendingMistChoice();
+        const forcedPvpType = choice ? (choice.lethal ? 'black' : 'yellow') : undefined;
+        if (originId && zonesDatabase.setMistOverride(newMapId, originId, forcedPvpType)) {
             persistMistOverride(newMapId, originId);
         }
     } else {
         zonesDatabase.clearAllMistOverrides();
         clearMistOverridePersistence();
+        pendingMistChoice = null;
     }
     syncMapIsBZ();
     radarRenderer?.setMap?.(map);
@@ -201,6 +214,10 @@ export function setRadarRenderer(renderer) {
 
 export function getLocalPlayerPosition() {
     return {x: lpX, y: lpY};
+}
+
+export function _debugGetPendingMistChoice() {
+    return pendingMistChoice;
 }
 
 export function restoreMistOverrideFromSession() {
@@ -451,6 +468,17 @@ export function onRequest(Parameters) {
             });
         }
     }
+
+    if (Parameters[253] == OperationCodes.MistsUseStaticEntrance && Parameters[1] == 8) {
+        pendingMistChoice = {
+            ts: Date.now(),
+            lethal: Parameters[2] !== undefined,
+        };
+        window.logger?.info(CATEGORIES.MAP, 'MistChoicePending', {
+            lethal: pendingMistChoice.lethal,
+            mode: Parameters[2] ?? null,
+        });
+    }
 }
 
 export function onResponse(Parameters, clearHandlersCallback) {
@@ -474,6 +502,7 @@ export function reset() {
     window.lpX = 0;
     window.lpY = 0;
     lastMapChangeTime = 0;
+    pendingMistChoice = null;
 
     // Clear references to prevent memory leaks
     handlers = null;
