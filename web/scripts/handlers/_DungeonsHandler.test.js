@@ -282,6 +282,30 @@ describe('DungeonsHandler', () => {
 
             expect(handler.dungeonList).toHaveLength(0);
         });
+
+        // @verified 2026-05-22: pcap-derived (mist-solo-portal-spawn.json, capture 13-36-55). The
+        // server stopped populating Parameters[3] for MISTS portals between 2026-05-14 and
+        // 2026-05-16; the name is now exclusively in Parameters[15]. Real message has
+        // {3:"", 5:"SHARED_MIST_WISP_PORTAL_MOB", 15:"MISTS_SOLO_BLACK", 8:1}. dungeonEvent must
+        // fall back to Parameters[15] so solo/duo Mist portals keep rendering.
+        test('MIST-6: dungeonEvent falls back to Parameters[15] when Parameters[3] is empty (pcap-derived)', async () => {
+            const fx = await loadFixture('mists', 'mist-solo-portal-spawn');
+            const p = normalizeParams(fx.messages[0].parameters);
+
+            handler.dungeonEvent(p);
+
+            expect(handler.dungeonList).toHaveLength(1);
+            expect(handler.dungeonList[0].drawName).toBe('dungeon_1');
+        });
+
+        // @verified 2026-05-16: regression guard. A standard dungeon with a populated
+        // Parameters[3] must keep using it (not the Parameters[15] fallback).
+        test('MIST-6: dungeonEvent keeps Parameters[3] when present even if Parameters[15] differs', () => {
+            handler.dungeonEvent({0: 2, 1: [0, 0], 3: 'CORRUPTED_SOLO_NONLETHAL', 8: 0, 15: 'IRRELEVANT', 252: 323});
+
+            expect(handler.dungeonList).toHaveLength(1);
+            expect(handler.dungeonList[0].drawName).toBe('corrupt');
+        });
     });
 
     describe('Clear', () => {
